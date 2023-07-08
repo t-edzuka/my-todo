@@ -1,6 +1,6 @@
 use axum::{routing::get, Router};
-use std::net::SocketAddr;
 use std::env;
+use std::net::SocketAddr;
 
 async fn root() -> &'static str {
     "Hello, world!"
@@ -21,6 +21,4 @@ async fn main() {
         .serve(app.into_make_service())
         .await
         .unwrap();
-    
 }
-
