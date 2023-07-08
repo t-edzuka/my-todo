@@ -1,12 +1,14 @@
+run:
+    RUST_LOG=debug cargo run
 test:
-    cargo test
+    RUST_LOG=debug cargo test
 
 fmt:
     cargo clippy
     cargo fmt --all
 
 watch:
-    cargo watch -x run
+    RUST_LOG=debug cargo watch -x run
 
 audit:
     cargo deny check advisories
