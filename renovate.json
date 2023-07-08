@@ -1,0 +1,21 @@
+{
+  "extends": [
+    "config:base"
+  ],
+  "timezone": "Asia/Tokyo",
+  "cargo": {
+    "enabled": true
+  },
+  "platformAutomerge": true,
+  "packageRules": [
+    {
+      "automerge": true
+    },
+    {
+      "matchDepTypes": [
+        "devDependencies"
+      ],
+      "automerge": true
+    }
+  ]
+}
