@@ -208,17 +208,17 @@ mod tests {
         let todo = repo.create(CreateTodo {
             text: "test todo".to_string(),
         });
-        assert_eq!(todo.clone().id, 1);
+        assert_eq!(todo.id, 1);
 
         let todo2 = repo.create(CreateTodo {
             text: "test todo2".to_string(),
         });
 
-        assert_eq!(todo2.clone().id, 2);
+        assert_eq!(todo2.id, 2);
 
         // get id = 1 todo
         let todo_found = repo.find(1).unwrap();
-        assert_eq!(todo_found, todo.clone());
+        assert_eq!(todo_found, todo);
 
         // list all todo
         let all = repo.all();
