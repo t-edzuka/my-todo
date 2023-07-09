@@ -1,17 +1,17 @@
+use std::env;
+use std::net::SocketAddr;
+use std::sync::Arc;
+
 use axum::extract::Extension;
-use axum::response::IntoResponse;
-use axum::Json;
 use axum::{
     routing::{get, post},
     Router,
 };
-use hyper::StatusCode;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::env;
-use std::net::SocketAddr;
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use thiserror::Error;
+
+use repositories::{TodoRepository, TodoRepositoryMemory};
+
+mod handlers;
+mod repositories;
 
 async fn root() -> &'static str {
     "Hello, world!"
@@ -28,9 +28,18 @@ where
     R: TodoRepository,
 {
     Router::new()
-        .layer(Extension(Arc::new(repo)))
         .route("/", get(root))
-        .route("/todos", post(create_todo_handler::<R>))
+        .route(
+            "/todos",
+            post(handlers::create_todo::<R>).get(handlers::all_todo::<R>),
+        )
+        .route(
+            "/todos/:id",
+            get(handlers::find_todo::<R>)
+                .delete(handlers::delete_todo::<R>)
+                .patch(handlers::update_todo::<R>),
+        )
+        .layer(Extension(Arc::new(repo)))
 }
 
 async fn run_server(socket_addr: &SocketAddr, app: Router) {
@@ -46,198 +55,182 @@ async fn main() {
     // init logging
     setup_logging();
 
-    let repo = TodoRepositoryMemory::new(); // TODO: use other repository lator
+    let repo = TodoRepositoryMemory::new(); // TODO: use other repository later
 
     let app = create_app::<TodoRepositoryMemory>(repo);
     let addr = SocketAddr::from(([127, 0, 0, 1], 8078));
-
     run_server(&addr, app).await;
-}
-
-pub async fn create_todo_handler<R>(
-    Extension(repo): Extension<Arc<R>>,
-    Json(todo): Json<CreateTodo>,
-) -> impl IntoResponse
-where
-    R: TodoRepository,
-{
-    let todo = repo.create(todo);
-    (StatusCode::CREATED, Json(todo))
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub struct Todo {
-    id: u64,
-    text: String,
-    done: bool,
-}
-
-impl Todo {
-    pub fn new(id: u64, text: String) -> Self {
-        Self {
-            id,
-            text,
-            done: false,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub struct CreateTodo {
-    text: String,
-}
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub struct UpdateTodo {
-    text: Option<String>,
-    done: Option<bool>,
-}
-#[derive(Error, Debug)]
-enum RepositoryError {
-    #[error("Not found id: {0}")]
-    NotFound(u64),
-}
-
-pub trait TodoRepository: Clone + std::marker::Send + std::marker::Sync + 'static {
-    fn create(&self, todo: CreateTodo) -> Todo;
-    fn update(&self, id: u64, todo: UpdateTodo) -> anyhow::Result<Todo>;
-    fn delete(&self, id: u64) -> anyhow::Result<()>;
-    fn find(&self, id: u64) -> Option<Todo>;
-    fn all(&self) -> Vec<Todo>;
-}
-
-type TodoHashMap = HashMap<u64, Todo>;
-
-#[derive(Clone, Debug)]
-pub struct TodoRepositoryMemory {
-    store: Arc<RwLock<TodoHashMap>>,
-}
-
-impl TodoRepositoryMemory {
-    pub fn new() -> Self {
-        Self {
-            store: Arc::default(),
-        }
-    }
-
-    fn write_store_ref(&self) -> RwLockWriteGuard<TodoHashMap> {
-        self.store.write().unwrap()
-    }
-
-    fn read_store_ref(&self) -> RwLockReadGuard<TodoHashMap> {
-        self.store.read().unwrap()
-    }
-}
-
-impl Default for TodoRepositoryMemory {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TodoRepository for TodoRepositoryMemory {
-    fn create(&self, todo: CreateTodo) -> Todo {
-        let mut store = self.write_store_ref();
-
-        let id = store.len() as u64 + 1;
-        let todo = Todo::new(id, todo.text);
-        store.insert(id, todo.clone());
-        todo
-    }
-
-    fn update(&self, id: u64, update_todo: UpdateTodo) -> anyhow::Result<Todo> {
-        let mut store = self.write_store_ref();
-        let todo = store.get_mut(&id).ok_or(RepositoryError::NotFound(id))?;
-        let UpdateTodo { text, done } = update_todo;
-        if let Some(text) = text {
-            todo.text = text;
-        }
-        if let Some(done) = done {
-            todo.done = done;
-        }
-        Ok(todo.clone())
-    }
-
-    fn delete(&self, id: u64) -> anyhow::Result<()> {
-        let mut store = self.write_store_ref();
-        store.remove(&id).ok_or(RepositoryError::NotFound(id))?;
-        Ok(())
-    }
-
-    fn find(&self, id: u64) -> Option<Todo> {
-        let store = self.read_store_ref();
-        store.get(&id).cloned()
-    }
-
-    fn all(&self) -> Vec<Todo> {
-        let store = self.read_store_ref();
-        let mut res = store.values().cloned().collect::<Vec<Todo>>();
-        res.sort_by_key(|todo: &Todo| todo.id);
-        res
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use axum::response::Response;
     use axum::{
         body::Body,
         http::{Method, Request},
     };
-
+    use hyper::header::CONTENT_TYPE;
+    use hyper::StatusCode;
+    use mime::APPLICATION_JSON;
     use tower::ServiceExt;
+
+    use crate::create_app;
+    use crate::repositories::{CreateTodo, Todo, TodoRepository, TodoRepositoryMemory};
+
+    // Test utilities
+    struct RequestBuilder {
+        uri: String,
+        method: Method,
+    }
+
+    impl RequestBuilder {
+        fn new(uri: &str, method: Method) -> RequestBuilder {
+            RequestBuilder {
+                uri: uri.to_string(),
+                method,
+            }
+        }
+
+        fn with_json_string(self, json_string: String) -> Request<Body> {
+            Request::builder()
+                .uri(self.uri)
+                .header(CONTENT_TYPE, APPLICATION_JSON.as_ref())
+                .method(self.method)
+                .body(Body::from(json_string))
+                .unwrap()
+        }
+
+        fn with_empty(&self) -> Request<Body> {
+            Request::builder()
+                .uri(self.uri.as_str())
+                .method(self.method.as_ref())
+                .body(Body::empty())
+                .unwrap()
+        }
+    }
+
+    async fn res_to_todo(res: Response) -> Todo {
+        let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+        let body = String::from_utf8(bytes.to_vec()).unwrap();
+
+        let todo: Todo = serde_json::from_str(&body)
+            .unwrap_or_else(|_| panic!("failed to parse json: {}", body));
+        todo
+    }
+
+    async fn res_to_todos(res: Response) -> Vec<Todo> {
+        let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+        let body = String::from_utf8(bytes.to_vec()).unwrap();
+
+        let todos: Vec<Todo> = serde_json::from_str(&body)
+            .unwrap_or_else(|_| panic!("failed to parse json: {}", body));
+        todos
+    }
+
+    // Tests
 
     #[tokio::test]
     async fn test_root() {
-        let req = Request::builder()
-            .uri("/")
-            .method(Method::GET)
-            .body(Body::empty())
-            .unwrap();
-        let repo = TodoRepositoryMemory::new();
-        let res = create_app(repo).oneshot(req).await.unwrap();
-
-        let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
-        let body = std::str::from_utf8(&bytes).unwrap();
+        let req = RequestBuilder::new("/", Method::GET).with_empty();
+        let app = create_app::<TodoRepositoryMemory>(TodoRepositoryMemory::new());
+        let res = app.oneshot(req).await.unwrap();
+        let body = hyper::body::to_bytes(res.into_body()).await.unwrap();
         assert_eq!(body, "Hello, world!");
     }
 
     #[tokio::test]
-    async fn test_todo_repo_scenario() {
-        // create todo
+    async fn test_create_todo_route() {
+        let req = RequestBuilder::new("/todos", Method::POST)
+            .with_json_string(r#"{"text": "test todo"}"#.to_string());
         let repo = TodoRepositoryMemory::new();
-        let todo = repo.create(CreateTodo {
-            text: "test todo".to_string(),
-        });
-        assert_eq!(todo.id, 1);
+        let app = create_app(repo);
+        let res = app.oneshot(req).await.unwrap();
 
-        let todo2 = repo.create(CreateTodo {
-            text: "test todo2".to_string(),
-        });
+        let sut = res_to_todo(res).await;
 
-        assert_eq!(todo2.id, 2);
+        let expected = Todo::new(1, "test todo".to_string());
+        assert_eq!(sut, expected);
+    }
 
-        // get id = 1 todo
-        let todo_found = repo.find(1).unwrap();
-        assert_eq!(todo_found, todo);
+    #[tokio::test]
+    async fn test_find_todo_by_id_route() {
+        // Given a todo in the repository as memory
+        let repo = TodoRepositoryMemory::new();
+        let c_todo = CreateTodo::new("test todo".to_string());
+        let todo_registered = repo.create(c_todo);
 
-        // list all todo
-        let all = repo.all();
-        assert_eq!(all.len(), 2);
-        assert_eq!(all[0], todo);
-        assert_eq!(all[1], todo2);
+        // When a request is made to find the todo by id
+        let req = RequestBuilder::new("/todos/1", Method::GET).with_empty();
+        let app = create_app(repo);
+        let res = app.oneshot(req).await.unwrap();
+        let result_response = res_to_todo(res).await;
 
-        // update todo
-        repo.update(
-            1,
-            UpdateTodo {
-                text: Some("updated todo".to_string()),
-                done: Some(true),
-            },
-        )
-        .unwrap();
+        // then
+        assert_eq!(result_response, todo_registered);
+    }
 
-        let todo_updated = repo.find(1).unwrap();
-        assert_eq!(todo_updated.text, "updated todo".to_string());
-        assert!(todo_updated.done);
+    #[tokio::test]
+    async fn test_all_todos_route() {
+        // Given a todo in the repository as memory
+        let repo = TodoRepositoryMemory::new();
+        let c_todo = CreateTodo::new("test todo".to_string());
+        let todo_registered = repo.create(c_todo);
+        let c_todo2 = CreateTodo::new("test todo2".to_string());
+        let todo_registered2 = repo.create(c_todo2);
+
+        // When a request is made to find the todo by id
+        let req = RequestBuilder::new("/todos", Method::GET).with_empty();
+        let app = create_app(repo);
+        let res = app.oneshot(req).await.unwrap();
+        let result_response = res_to_todos(res).await;
+
+        // then
+        assert_eq!(result_response, vec![todo_registered, todo_registered2]);
+    }
+
+    #[tokio::test]
+    async fn test_delete_todo_route() {
+        // Given a todo in the repository as memory
+        let repo = TodoRepositoryMemory::new();
+        let c_todo = CreateTodo::new("test todo".to_string());
+        let _todo_registered = repo.create(c_todo);
+
+        // When a delete request made with path param id=1
+        let req = RequestBuilder::new("/todos/1", Method::DELETE).with_empty();
+        let app = create_app(repo);
+        let res = app.clone().oneshot(req).await.unwrap();
+
+        // then
+        assert_eq!(StatusCode::NO_CONTENT, res.status());
+
+        // and with not found request
+        let req = RequestBuilder::new("/todos/2", Method::DELETE).with_empty();
+        let res = app.oneshot(req).await.unwrap();
+        // then
+        assert_eq!(StatusCode::NOT_FOUND, res.status());
+    }
+
+    #[tokio::test]
+    async fn update_todo_route() {
+        // Given a todo in the repository as memory
+        let repo = TodoRepositoryMemory::new();
+        let c_todo = CreateTodo::new("test todo".to_string());
+        let _todo_registered = repo.create(c_todo);
+
+        // When a delete request made with path param id=1
+        let req = RequestBuilder::new("/todos/1", Method::PATCH)
+            .with_json_string(r#"{"text": "test todo updated"}"#.to_string());
+        let app = create_app(repo);
+        let res = app.clone().oneshot(req).await.unwrap();
+
+        // then
+        assert_eq!(StatusCode::CREATED, res.status());
+
+        // and with not found request
+        let req = RequestBuilder::new("/todos/2", Method::PATCH)
+            .with_json_string(r#"{"text": "test todo updated"}"#.to_string());
+        let res = app.oneshot(req).await.unwrap();
+        // then
+        assert_eq!(StatusCode::NOT_FOUND, res.status());
     }
 }
