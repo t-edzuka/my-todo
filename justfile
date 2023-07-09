@@ -7,8 +7,12 @@ fmt:
     cargo clippy
     cargo fmt --all
 
+
+# It will start by running cargo check.
+# If it succeeds, it launches cargo test.
+# If tests pass, it launches the application with cargo run.
 watch:
-    RUST_LOG=debug cargo watch -x run
+     RUST_LOG=debug cargo watch -x check -x test -x run
 
 audit:
     cargo deny check advisories
