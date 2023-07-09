@@ -162,7 +162,7 @@ impl TodoRepository for TodoRepositoryMemory {
         let mut store = self.write_store_ref();
 
         let id = store.len() as u64 + 1;
-        let todo = Todo::new(id, todo.text.clone());
+        let todo = Todo::new(id, todo.text);
         store.insert(id, todo.clone());
         todo
     }
