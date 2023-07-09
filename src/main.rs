@@ -71,9 +71,9 @@ mod tests {
     use super::*;
     use axum::{
         body::Body,
-        http::{Request, header::CONTENT_TYPE, Method}, 
+        http::{header::CONTENT_TYPE, Method, Request},
     };
-    
+
     use tower::ServiceExt;
 
     #[tokio::test]
