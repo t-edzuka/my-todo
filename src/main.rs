@@ -193,7 +193,9 @@ impl TodoRepository for TodoRepositoryMemory {
 
     fn all(&self) -> Vec<Todo> {
         let store = self.read_store_ref();
-        store.values().cloned().collect()
+        let mut res = store.values().cloned().collect::<Vec<Todo>>();
+        res.sort_by_key(|todo: &Todo| todo.id);
+        res
     }
 }
 
@@ -256,4 +258,44 @@ mod tests {
         let sut = repo.create(CreateTodo { text });
         assert_eq!(sut, expected)
     }
+
+    #[tokio::test]
+    async fn test_todo_repo_scenario() {
+        // create todo
+        let repo = TodoRepositoryMemory::new();
+        let todo = repo.create(CreateTodo {
+            text: "test todo".to_string(),
+        });
+        assert_eq!(todo.clone().id, 1);
+        
+        let todo2 = repo.create(CreateTodo {
+            text: "test todo2".to_string(),
+        });
+
+        assert_eq!(todo2.clone().id, 2);
+
+        // get id = 1 todo
+        let todo_found = repo.find(1).unwrap();
+        assert_eq!(todo_found, todo.clone());
+
+        // list all todo
+        let all = repo.all();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0], todo);
+        assert_eq!(all[1], todo2);
+
+        // update todo
+        repo.update(1, UpdateTodo {
+            text: Some("updated todo".to_string()),
+            done: Some(true),
+        }).unwrap();
+
+        let todo_updated = repo.find(1).unwrap();
+        assert_eq!(todo_updated.text, "updated todo".to_string());
+        assert!(todo_updated.done);
+        
+        
+    }
+
+
 }
