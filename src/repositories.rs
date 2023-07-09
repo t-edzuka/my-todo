@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use thiserror::Error;
+use validator::Validate;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct Todo {
@@ -21,8 +22,10 @@ impl Todo {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Validate)]
 pub struct CreateTodo {
+    #[validate(length(min = 1, message = "Can not be empty"))]
+    #[validate(length(max = 288, message = "Over the text length"))]
     text: String,
 }
 
@@ -33,8 +36,10 @@ impl CreateTodo {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Validate)]
 pub struct UpdateTodo {
+    #[validate(length(min = 1, message = "Can not be empty"))]
+    #[validate(length(max = 288, message = "Over the text length"))]
     text: Option<String>,
     done: Option<bool>,
 }
