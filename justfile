@@ -1,7 +1,13 @@
 run:
     RUST_LOG=debug cargo run
-test:
+
+# test with real postgresql database using .env file that contains DATABASE_URL
+test-e2e:
     RUST_LOG=debug cargo test
+
+# standalone in-memory test
+test:
+    RUST_LOG=debug cargo test --no-default-features
 
 fmt:
     cargo clippy

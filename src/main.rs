@@ -92,7 +92,9 @@ mod tests {
     use tower::ServiceExt;
 
     use crate::create_app;
-    use crate::repositories::{test_repo::TodoRepositoryMemory, CreateTodo, Todo, TodoRepository};
+    use crate::repositories::{
+        test_inmemory_repo::TodoRepositoryMemory, CreateTodo, Todo, TodoRepository,
+    };
 
     // Test utilities
 

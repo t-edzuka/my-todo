@@ -134,7 +134,7 @@ impl TodoRepository for TodoRepositoryForDb {
 }
 
 #[cfg(test)]
-pub mod test_repo {
+pub mod test_inmemory_repo {
     use std::collections::HashMap;
     use std::sync::RwLock;
     use std::sync::RwLockWriteGuard;
@@ -267,5 +267,92 @@ pub mod test_repo {
         let todo_updated = repo.find(1).await.expect("failed to find todo");
         assert_eq!(todo_updated.text, "updated todo".to_string());
         assert!(todo_updated.completed);
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "db-test")]
+mod test_psql_repo {
+    use std::env;
+
+    use dotenvy::dotenv;
+    use sqlx::PgPool;
+
+    use super::*;
+
+    fn db_url() -> String {
+        dotenv().ok();
+        env::var("DATABASE_URL").expect("DATABASE_URL must be set")
+    }
+
+    async fn create_pool() -> PgPool {
+        PgPool::connect(&db_url())
+            .await
+            .expect("failed to create pool")
+    }
+
+    #[tokio::test]
+    async fn crud_scenario() {
+        let pool = create_pool().await;
+        let repo = TodoRepositoryForDb::new(pool);
+
+        let todo_text = "[crud_scenario] test todo";
+
+        // create todo
+        let todo_created = repo
+            .create(CreateTodo::new(todo_text.to_string()))
+            .await
+            .expect("failed to create todo");
+
+        assert_eq!(todo_created.text, todo_text);
+        assert!(!todo_created.completed);
+
+        // get id = 1 todo
+        let todo_found = repo
+            .find(todo_created.id)
+            .await
+            .expect("failed to find todo");
+        assert_eq!(todo_found, todo_created);
+
+        // list all todo
+        let all = repo.all().await.expect("failed to get all todo");
+        let found_single = all.first().expect("failed to get first todo");
+        assert_eq!(todo_created, *found_single);
+
+        // update todo
+        let updated_text = "[crud_scenario] updated todo";
+        let todo_updated = repo
+            .update(
+                todo_created.id.clone(),
+                UpdateTodo {
+                    text: Some(updated_text.to_string()),
+                    completed: Some(true),
+                },
+            )
+            .await
+            .expect("failed to update todo");
+        assert_eq!(todo_updated.id, todo_created.id.clone());
+        assert_eq!(todo_updated.text, updated_text);
+        assert!(todo_updated.completed);
+
+        //delete todo
+        let _ = repo
+            .delete(todo_created.id)
+            .await
+            .expect("failed to delete todo");
+        let after_deleted = repo.find(todo_created.id).await;
+        // becomes error to try to find after deletion.
+        assert!(after_deleted.is_err());
+
+        let todo_rows = sqlx::query(
+            r#"
+            select * from todos where id=$1
+            "#,
+        )
+        .bind(todo_created.id)
+        .fetch_all(&repo.pool)
+        .await
+        .expect("failed to fetch todo rows");
+        assert!(todo_rows.is_empty());
     }
 }
