@@ -3,12 +3,17 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::extract::Extension;
+use axum::http::HeaderValue;
 use axum::{
+    http,
     routing::{get, post},
     Router,
 };
 use dotenvy::dotenv;
+use http::method::Method;
+use hyper::header::{AUTHORIZATION, CONTENT_TYPE};
 use sqlx::PgPool;
+use tower_http::cors::CorsLayer;
 
 use repositories::TodoRepository;
 
@@ -19,6 +24,26 @@ mod repositories;
 
 async fn root() -> &'static str {
     "Hello, world!"
+}
+
+fn create_cors_layer(allow_origins: impl IntoIterator<Item = String>) -> CorsLayer {
+    let allow_origins = allow_origins
+        .into_iter()
+        .map(|origin: String| {
+            origin
+                .parse::<HeaderValue>()
+                .unwrap_or_else(|_| panic!("Invalid client url {}", origin))
+        })
+        .collect::<Vec<HeaderValue>>();
+    CorsLayer::new()
+        .allow_origin(allow_origins)
+        .allow_methods(vec![
+            Method::GET,
+            Method::POST,
+            Method::DELETE,
+            Method::PATCH,
+        ])
+        .allow_headers(vec![CONTENT_TYPE, AUTHORIZATION])
 }
 
 fn setup_logging() {
@@ -70,13 +95,16 @@ async fn main() {
     set_dotenv_vars();
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let db_conn = create_db_conn(&database_url).await;
+    // get front end url from env
+    let client_url = env::var("CLIENT_URL").expect("CLIENT_URL must be set");
+    let cors_layer = create_cors_layer(vec![client_url]);
     // init logging
 
     let repo = TodoRepositoryForDb::new(db_conn);
 
-    let app = create_app::<TodoRepositoryForDb>(repo);
+    let router = create_app::<TodoRepositoryForDb>(repo).layer(cors_layer);
     let addr = SocketAddr::from(([127, 0, 0, 1], 8078));
-    run_server(&addr, app).await;
+    run_server(&addr, router).await;
 }
 
 #[cfg(test)]

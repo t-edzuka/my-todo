@@ -188,7 +188,7 @@ pub mod test_inmemory_repo {
             let store = self.read_store_ref();
             let todo_found = store
                 .get(&id)
-                .map(|todo| todo.clone())
+                .cloned()
                 .ok_or(RepositoryError::NotFound(id))?;
             Ok(todo_found)
         }
@@ -323,7 +323,7 @@ mod test_psql_repo {
         let updated_text = "[crud_scenario] updated todo";
         let todo_updated = repo
             .update(
-                todo_created.id.clone(),
+                todo_created.id,
                 UpdateTodo {
                     text: Some(updated_text.to_string()),
                     completed: Some(true),
@@ -336,8 +336,7 @@ mod test_psql_repo {
         assert!(todo_updated.completed);
 
         //delete todo
-        let _ = repo
-            .delete(todo_created.id)
+        repo.delete(todo_created.id)
             .await
             .expect("failed to delete todo");
         let after_deleted = repo.find(todo_created.id).await;
