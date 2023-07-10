@@ -95,6 +95,17 @@ mod tests {
     use crate::repositories::{test_repo::TodoRepositoryMemory, CreateTodo, Todo, TodoRepository};
 
     // Test utilities
+
+    impl Todo {
+        pub(crate) fn new(id: i32, text: &str, completed: bool) -> Todo {
+            Todo {
+                id,
+                text: text.to_string(),
+                completed,
+            }
+        }
+    }
+
     struct RequestBuilder {
         uri: String,
         method: Method,
@@ -165,7 +176,7 @@ mod tests {
 
         let sut = res_to_todo(res).await;
 
-        let expected = Todo::new(1, "test todo".to_string());
+        let expected = Todo::new(1, "test todo", false);
         assert_eq!(sut, expected);
     }
 

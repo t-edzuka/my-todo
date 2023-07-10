@@ -1,25 +1,14 @@
 use axum::async_trait;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{FromRow, PgPool};
 use thiserror::Error;
 use validator::Validate;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, FromRow)]
 pub struct Todo {
-    id: u64,
-    text: String,
-    done: bool,
-}
-
-impl Todo {
-    #[allow(dead_code)]
-    pub fn new(id: u64, text: String) -> Self {
-        Self {
-            id,
-            text,
-            done: false,
-        }
-    }
+    pub(crate) id: i32,
+    pub(crate) text: String,
+    pub(crate) completed: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Validate)]
@@ -41,23 +30,25 @@ pub struct UpdateTodo {
     #[validate(length(min = 1, message = "Can not be empty"))]
     #[validate(length(max = 288, message = "Over the text length"))]
     text: Option<String>,
-    done: Option<bool>,
+    completed: Option<bool>,
 }
 
 #[allow(dead_code)]
 #[derive(Error, Debug)]
 pub enum RepositoryError {
+    #[error("Unexpected error: {0}")]
+    Unexpected(String),
     #[error("Not found id: {0}")]
-    NotFound(u64),
+    NotFound(i32),
 }
 
 #[async_trait]
 pub trait TodoRepository: Clone + std::marker::Send + std::marker::Sync + 'static {
     async fn create(&self, todo: CreateTodo) -> anyhow::Result<Todo>;
-    async fn find(&self, id: u64) -> Option<Todo>;
+    async fn find(&self, id: i32) -> anyhow::Result<Todo>;
     async fn all(&self) -> anyhow::Result<Vec<Todo>>;
-    async fn delete(&self, id: u64) -> anyhow::Result<()>;
-    async fn update(&self, id: u64, todo: UpdateTodo) -> anyhow::Result<Todo>;
+    async fn delete(&self, id: i32) -> anyhow::Result<()>;
+    async fn update(&self, id: i32, todo: UpdateTodo) -> anyhow::Result<Todo>;
 }
 
 #[allow(dead_code)]
@@ -74,24 +65,71 @@ impl TodoRepositoryForDb {
 
 #[async_trait]
 impl TodoRepository for TodoRepositoryForDb {
-    async fn create(&self, _todo: CreateTodo) -> anyhow::Result<Todo> {
-        todo!()
+    async fn create(&self, todo: CreateTodo) -> anyhow::Result<Todo> {
+        let todo = sqlx::query_as::<_, Todo>(
+            r#"
+        insert into todos (text, completed) values ($1, false) returning *
+        "#,
+        )
+        .bind(todo.text.clone())
+        .fetch_one(&self.pool)
+        .await?;
+
+        tracing::debug!("todo result {:?}", todo);
+
+        Ok(todo)
     }
 
-    async fn find(&self, _id: u64) -> Option<Todo> {
-        todo!()
+    async fn find(&self, id: i32) -> anyhow::Result<Todo> {
+        let find_query = r#"select * from todos where id = $1"#;
+        let todo = sqlx::query_as::<_, Todo>(find_query)
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(todo)
     }
 
     async fn all(&self) -> anyhow::Result<Vec<Todo>> {
-        todo!()
+        let all_query = r#"select * from todos order by id desc"#;
+        let todos = sqlx::query_as::<_, Todo>(all_query)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(todos)
     }
 
-    async fn delete(&self, _id: u64) -> anyhow::Result<()> {
-        todo!()
+    async fn delete(&self, id: i32) -> anyhow::Result<()> {
+        let delete_query = r#"delete from todos where id = $1"#;
+        sqlx::query(delete_query)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => RepositoryError::NotFound(id),
+                _ => RepositoryError::Unexpected(e.to_string()),
+            })?;
+        Ok(())
     }
 
-    async fn update(&self, _id: u64, _update_todo: UpdateTodo) -> anyhow::Result<Todo> {
-        todo!()
+    async fn update(&self, id: i32, update_todo: UpdateTodo) -> anyhow::Result<Todo> {
+        let todo_to_be_updated = self.find(id).await?;
+
+        let update_query = r#"
+        update todos 
+        set text = $1, completed = $2 where id = $3
+        returning *
+        "#;
+
+        let todo = sqlx::query_as::<_, Todo>(update_query)
+            .bind(update_todo.text.unwrap_or(todo_to_be_updated.text))
+            .bind(
+                update_todo
+                    .completed
+                    .unwrap_or(todo_to_be_updated.completed),
+            )
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(todo)
     }
 }
 
@@ -106,7 +144,7 @@ pub mod test_repo {
 
     use super::*;
 
-    type TodoHashMap = HashMap<u64, Todo>;
+    type TodoHashMap = HashMap<i32, Todo>;
 
     #[derive(Clone, Debug)]
     pub struct TodoRepositoryMemory {
@@ -140,15 +178,19 @@ pub mod test_repo {
         async fn create(&self, todo: CreateTodo) -> anyhow::Result<Todo> {
             let mut store = self.write_store_ref();
 
-            let id = store.len() as u64 + 1;
-            let todo = Todo::new(id, todo.text);
+            let id = store.len() as i32 + 1;
+            let todo = Todo::new(id, todo.text.as_ref(), false);
             store.insert(id, todo.clone());
             Ok(todo)
         }
 
-        async fn find(&self, id: u64) -> Option<Todo> {
+        async fn find(&self, id: i32) -> anyhow::Result<Todo> {
             let store = self.read_store_ref();
-            store.get(&id).cloned()
+            let todo_found = store
+                .get(&id)
+                .map(|todo| todo.clone())
+                .ok_or(RepositoryError::NotFound(id))?;
+            Ok(todo_found)
         }
 
         async fn all(&self) -> anyhow::Result<Vec<Todo>> {
@@ -158,19 +200,23 @@ pub mod test_repo {
             Ok(res)
         }
 
-        async fn delete(&self, id: u64) -> anyhow::Result<()> {
+        async fn delete(&self, id: i32) -> anyhow::Result<()> {
             let mut store = self.write_store_ref();
             store.remove(&id).ok_or(RepositoryError::NotFound(id))?;
             Ok(())
         }
 
-        async fn update(&self, id: u64, update_todo: UpdateTodo) -> anyhow::Result<Todo> {
+        async fn update(&self, id: i32, update_todo: UpdateTodo) -> anyhow::Result<Todo> {
             let mut store = self.write_store_ref();
             let todo = store.get(&id).context(RepositoryError::NotFound(id))?;
 
             let text = update_todo.text.unwrap_or(todo.text.clone());
-            let done = update_todo.done.unwrap_or(todo.done);
-            let new_todo = Todo { id, text, done };
+            let completed = update_todo.completed.unwrap_or(todo.completed);
+            let new_todo = Todo {
+                id,
+                text,
+                completed,
+            };
             store.insert(id, new_todo.clone());
             Ok(new_todo)
         }
@@ -212,7 +258,7 @@ pub mod test_repo {
             1,
             UpdateTodo {
                 text: Some("updated todo".to_string()),
-                done: Some(true),
+                completed: Some(true),
             },
         )
         .await
@@ -220,6 +266,6 @@ pub mod test_repo {
 
         let todo_updated = repo.find(1).await.expect("failed to find todo");
         assert_eq!(todo_updated.text, "updated todo".to_string());
-        assert!(todo_updated.done);
+        assert!(todo_updated.completed);
     }
 }

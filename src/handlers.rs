@@ -15,17 +15,20 @@ pub struct ValidatedJson<T>(T);
 
 pub async fn create_todo<R: TodoRepository>(
     Extension(repo): Extension<Arc<R>>,
-    ValidatedJson(todo): ValidatedJson<CreateTodo>,
+    ValidatedJson(create_todo): ValidatedJson<CreateTodo>,
 ) -> anyhow::Result<impl IntoResponse, StatusCode> {
-    let todo = repo.create(todo).await.or(Err(StatusCode::NOT_FOUND))?;
+    let todo = repo
+        .create(create_todo)
+        .await
+        .or(Err(StatusCode::NOT_FOUND))?;
     Ok((StatusCode::CREATED, Json(todo)))
 }
 
 pub async fn find_todo<R: TodoRepository>(
-    Path(id): Path<u64>,
+    Path(id): Path<i32>,
     Extension(repo): Extension<Arc<R>>,
-) -> Result<impl IntoResponse, StatusCode> {
-    let todo = repo.find(id).await.ok_or(StatusCode::NOT_FOUND)?;
+) -> anyhow::Result<impl IntoResponse, StatusCode> {
+    let todo = repo.find(id).await.or(Err(StatusCode::NOT_FOUND))?;
     Ok((StatusCode::OK, Json(todo)))
 }
 
@@ -38,7 +41,7 @@ pub async fn all_todo<R: TodoRepository>(
 
 pub async fn update_todo<R: TodoRepository>(
     Extension(repo): Extension<Arc<R>>,
-    Path(id): Path<u64>,
+    Path(id): Path<i32>,
     ValidatedJson(update_todo): ValidatedJson<UpdateTodo>,
 ) -> Result<impl IntoResponse, StatusCode> {
     let todo = repo
@@ -50,7 +53,7 @@ pub async fn update_todo<R: TodoRepository>(
 
 pub async fn delete_todo<R: TodoRepository>(
     Extension(repo): Extension<Arc<R>>,
-    Path(id): Path<u64>,
+    Path(id): Path<i32>,
 ) -> StatusCode {
     repo.delete(id)
         .await
