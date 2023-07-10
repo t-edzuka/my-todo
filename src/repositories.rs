@@ -125,7 +125,7 @@ impl TodoRepository for TodoRepositoryMemory {
 
     async fn all(&self) -> anyhow::Result<Vec<Todo>> {
         let store = self.read_store_ref();
-        let mut res = Vec::from_iter(store.values().map(|todo| todo.clone()));
+        let mut res = Vec::from_iter(store.values().cloned());
         res.sort_by_key(|todo: &Todo| todo.id);
         Ok(res)
     }
