@@ -7,8 +7,12 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use dotenvy::dotenv;
+use sqlx::PgPool;
 
-use repositories::{TodoRepository, TodoRepositoryMemory};
+use repositories::TodoRepository;
+
+use crate::repositories::TodoRepositoryForDb;
 
 mod handlers;
 mod repositories;
@@ -21,6 +25,16 @@ fn setup_logging() {
     let log_level = env::var("RUST_LOG").unwrap_or("info".to_string());
     env::set_var("RUST_LOG", log_level);
     tracing_subscriber::fmt::init();
+}
+
+fn set_dotenv_vars() {
+    dotenv().ok();
+}
+
+async fn create_db_conn(db_url: &str) -> PgPool {
+    PgPool::connect(db_url)
+        .await
+        .expect("Can not connect to database")
 }
 
 fn create_app<R>(repo: R) -> Router
@@ -52,12 +66,15 @@ async fn run_server(socket_addr: &SocketAddr, app: Router) {
 
 #[tokio::main]
 async fn main() {
-    // init logging
     setup_logging();
+    set_dotenv_vars();
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let db_conn = create_db_conn(&database_url).await;
+    // init logging
 
-    let repo = TodoRepositoryMemory::new(); // TODO: use other repository later
+    let repo = TodoRepositoryForDb::new(db_conn);
 
-    let app = create_app::<TodoRepositoryMemory>(repo);
+    let app = create_app::<TodoRepositoryForDb>(repo);
     let addr = SocketAddr::from(([127, 0, 0, 1], 8078));
     run_server(&addr, app).await;
 }
@@ -75,7 +92,7 @@ mod tests {
     use tower::ServiceExt;
 
     use crate::create_app;
-    use crate::repositories::{CreateTodo, Todo, TodoRepository, TodoRepositoryMemory};
+    use crate::repositories::{test_repo::TodoRepositoryMemory, CreateTodo, Todo, TodoRepository};
 
     // Test utilities
     struct RequestBuilder {

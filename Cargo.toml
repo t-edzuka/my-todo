@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.71"
 axum = "0.6.18"
+dotenvy = "0.15.7"
 http-body = "0.4.5"
 hyper = { version = "0.14.27", features = ["full"] }
 mime = "0.3.17"
