@@ -16,22 +16,36 @@ pub struct ValidatedJson<T>(T);
 pub async fn create_todo<R: TodoRepository>(
     Extension(repo): Extension<Arc<R>>,
     ValidatedJson(todo): ValidatedJson<CreateTodo>,
-) -> impl IntoResponse {
-    let todo = repo.create(todo);
-    (StatusCode::CREATED, Json(todo))
+) -> anyhow::Result<impl IntoResponse, StatusCode> {
+    let todo = repo.create(todo).await.or(Err(StatusCode::NOT_FOUND))?;
+    Ok((StatusCode::CREATED, Json(todo)))
 }
 
 pub async fn find_todo<R: TodoRepository>(
     Path(id): Path<u64>,
     Extension(repo): Extension<Arc<R>>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let todo = repo.find(id).ok_or(StatusCode::NOT_FOUND)?;
+    let todo = repo.find(id).await.ok_or(StatusCode::NOT_FOUND)?;
     Ok((StatusCode::OK, Json(todo)))
 }
 
-pub async fn all_todo<R: TodoRepository>(Extension(repo): Extension<Arc<R>>) -> impl IntoResponse {
-    let todos = repo.all();
-    (StatusCode::OK, Json(todos))
+pub async fn all_todo<R: TodoRepository>(
+    Extension(repo): Extension<Arc<R>>,
+) -> anyhow::Result<impl IntoResponse, StatusCode> {
+    let todos = repo.all().await.expect("Can not get all todos");
+    Ok((StatusCode::OK, Json(todos)))
+}
+
+pub async fn update_todo<R: TodoRepository>(
+    Extension(repo): Extension<Arc<R>>,
+    Path(id): Path<u64>,
+    ValidatedJson(update_todo): ValidatedJson<UpdateTodo>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let todo = repo
+        .update(id, update_todo)
+        .await
+        .or(Err(StatusCode::NOT_FOUND))?;
+    Ok((StatusCode::CREATED, Json(todo)))
 }
 
 pub async fn delete_todo<R: TodoRepository>(
@@ -39,8 +53,9 @@ pub async fn delete_todo<R: TodoRepository>(
     Path(id): Path<u64>,
 ) -> StatusCode {
     repo.delete(id)
+        .await
         .map(|_| StatusCode::NO_CONTENT)
-        .unwrap_or(StatusCode::NOT_FOUND)
+        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 #[async_trait] // Rustのtraitでasync関数を実装できないためマクロを使用する。
@@ -67,15 +82,4 @@ where
         })?;
         Ok(ValidatedJson(value))
     }
-}
-
-pub async fn update_todo<R: TodoRepository>(
-    Extension(repo): Extension<Arc<R>>,
-    Path(id): Path<u64>,
-    ValidatedJson(update_todo): ValidatedJson<UpdateTodo>,
-) -> Result<impl IntoResponse, StatusCode> {
-    let todo = repo
-        .update(id, update_todo)
-        .or(Err(StatusCode::NOT_FOUND))?;
-    Ok((StatusCode::CREATED, Json(todo)))
 }

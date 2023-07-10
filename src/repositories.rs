@@ -1,7 +1,9 @@
-use anyhow::Context;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+use anyhow::Context;
+use axum::async_trait;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use validator::Validate;
 
@@ -50,12 +52,13 @@ pub enum RepositoryError {
     NotFound(u64),
 }
 
+#[async_trait]
 pub trait TodoRepository: Clone + std::marker::Send + std::marker::Sync + 'static {
-    fn create(&self, todo: CreateTodo) -> Todo;
-    fn update(&self, id: u64, todo: UpdateTodo) -> anyhow::Result<Todo>;
-    fn delete(&self, id: u64) -> anyhow::Result<()>;
-    fn find(&self, id: u64) -> Option<Todo>;
-    fn all(&self) -> Vec<Todo>;
+    async fn create(&self, todo: CreateTodo) -> anyhow::Result<Todo>;
+    async fn update(&self, id: u64, todo: UpdateTodo) -> anyhow::Result<Todo>;
+    async fn delete(&self, id: u64) -> anyhow::Result<()>;
+    async fn find(&self, id: u64) -> Option<Todo>;
+    async fn all(&self) -> anyhow::Result<Vec<Todo>>;
 }
 
 type TodoHashMap = HashMap<u64, Todo>;
@@ -87,17 +90,18 @@ impl Default for TodoRepositoryMemory {
     }
 }
 
+#[async_trait]
 impl TodoRepository for TodoRepositoryMemory {
-    fn create(&self, todo: CreateTodo) -> Todo {
+    async fn create(&self, todo: CreateTodo) -> anyhow::Result<Todo> {
         let mut store = self.write_store_ref();
 
         let id = store.len() as u64 + 1;
         let todo = Todo::new(id, todo.text);
         store.insert(id, todo.clone());
-        todo
+        Ok(todo)
     }
 
-    fn update(&self, id: u64, update_todo: UpdateTodo) -> anyhow::Result<Todo> {
+    async fn update(&self, id: u64, update_todo: UpdateTodo) -> anyhow::Result<Todo> {
         let mut store = self.write_store_ref();
         let todo = store.get(&id).context(RepositoryError::NotFound(id))?;
 
@@ -108,22 +112,22 @@ impl TodoRepository for TodoRepositoryMemory {
         Ok(new_todo)
     }
 
-    fn delete(&self, id: u64) -> anyhow::Result<()> {
+    async fn delete(&self, id: u64) -> anyhow::Result<()> {
         let mut store = self.write_store_ref();
         store.remove(&id).ok_or(RepositoryError::NotFound(id))?;
         Ok(())
     }
 
-    fn find(&self, id: u64) -> Option<Todo> {
+    async fn find(&self, id: u64) -> Option<Todo> {
         let store = self.read_store_ref();
         store.get(&id).cloned()
     }
 
-    fn all(&self) -> Vec<Todo> {
+    async fn all(&self) -> anyhow::Result<Vec<Todo>> {
         let store = self.read_store_ref();
-        let mut res = store.values().cloned().collect::<Vec<Todo>>();
+        let mut res = Vec::from_iter(store.values().map(|todo| todo.clone()));
         res.sort_by_key(|todo: &Todo| todo.id);
-        res
+        Ok(res)
     }
 }
 
@@ -131,23 +135,29 @@ impl TodoRepository for TodoRepositoryMemory {
 async fn test_todo_repo_scenario() {
     // create todo
     let repo = TodoRepositoryMemory::new();
-    let todo = repo.create(CreateTodo {
-        text: "test todo".to_string(),
-    });
+    let todo = repo
+        .create(CreateTodo {
+            text: "test todo".to_string(),
+        })
+        .await
+        .expect("failed to create todo");
     assert_eq!(todo.id, 1);
 
-    let todo2 = repo.create(CreateTodo {
-        text: "test todo2".to_string(),
-    });
+    let todo2 = repo
+        .create(CreateTodo {
+            text: "test todo2".to_string(),
+        })
+        .await
+        .expect("failed to create todo");
 
     assert_eq!(todo2.id, 2);
 
     // get id = 1 todo
-    let todo_found = repo.find(1).unwrap();
+    let todo_found = repo.find(1).await.expect("failed to find todo");
     assert_eq!(todo_found, todo);
 
     // list all todo
-    let all = repo.all();
+    let all = repo.all().await.expect("failed to get all todo");
     assert_eq!(all.len(), 2);
     assert_eq!(all[0], todo);
     assert_eq!(all[1], todo2);
@@ -160,9 +170,10 @@ async fn test_todo_repo_scenario() {
             done: Some(true),
         },
     )
-    .unwrap();
+    .await
+    .expect("failed to update todo");
 
-    let todo_updated = repo.find(1).unwrap();
+    let todo_updated = repo.find(1).await.expect("failed to find todo");
     assert_eq!(todo_updated.text, "updated todo".to_string());
     assert!(todo_updated.done);
 }

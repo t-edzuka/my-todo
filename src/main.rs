@@ -157,7 +157,7 @@ mod tests {
         // Given a todo in the repository as memory
         let repo = TodoRepositoryMemory::new();
         let c_todo = CreateTodo::new("test todo".to_string());
-        let todo_registered = repo.create(c_todo);
+        let todo_registered = repo.create(c_todo).await.expect("failed to create todo");
 
         // When a request is made to find the todo by id
         let req = RequestBuilder::new("/todos/1", Method::GET).with_empty();
@@ -174,9 +174,9 @@ mod tests {
         // Given a todo in the repository as memory
         let repo = TodoRepositoryMemory::new();
         let c_todo = CreateTodo::new("test todo".to_string());
-        let todo_registered = repo.create(c_todo);
+        let todo_registered = repo.create(c_todo).await.expect("Failed to create todo");
         let c_todo2 = CreateTodo::new("test todo2".to_string());
-        let todo_registered2 = repo.create(c_todo2);
+        let todo_registered2 = repo.create(c_todo2).await.expect("Failed to create todo");
 
         // When a request is made to find the todo by id
         let req = RequestBuilder::new("/todos", Method::GET).with_empty();
@@ -193,7 +193,7 @@ mod tests {
         // Given a todo in the repository as memory
         let repo = TodoRepositoryMemory::new();
         let c_todo = CreateTodo::new("test todo".to_string());
-        let _todo_registered = repo.create(c_todo);
+        let _todo_registered = repo.create(c_todo).await.expect("Failed to create todo");
 
         // When a delete request made with path param id=1
         let req = RequestBuilder::new("/todos/1", Method::DELETE).with_empty();
@@ -207,7 +207,7 @@ mod tests {
         let req = RequestBuilder::new("/todos/2", Method::DELETE).with_empty();
         let res = app.oneshot(req).await.unwrap();
         // then
-        assert_eq!(StatusCode::NOT_FOUND, res.status());
+        assert_eq!(StatusCode::INTERNAL_SERVER_ERROR, res.status());
     }
 
     #[tokio::test]
@@ -215,7 +215,7 @@ mod tests {
         // Given a todo in the repository as memory
         let repo = TodoRepositoryMemory::new();
         let c_todo = CreateTodo::new("test todo".to_string());
-        let _todo_registered = repo.create(c_todo);
+        let _todo_registered = repo.create(c_todo).await.expect("Failed to create todo");
 
         // When a delete request made with path param id=1
         let req = RequestBuilder::new("/todos/1", Method::PATCH)
