@@ -15,9 +15,7 @@ use hyper::header::{AUTHORIZATION, CONTENT_TYPE};
 use sqlx::PgPool;
 use tower_http::cors::CorsLayer;
 
-use repositories::TodoRepository;
-
-use crate::repositories::TodoRepositoryForDb;
+use crate::repositories::todo::{TodoRepository, TodoRepositoryForDb};
 
 mod handlers;
 mod repositories;
@@ -70,13 +68,13 @@ where
         .route("/", get(root))
         .route(
             "/todos",
-            post(handlers::create_todo::<R>).get(handlers::all_todo::<R>),
+            post(handlers::todo::create_todo::<R>).get(handlers::todo::all_todo::<R>),
         )
         .route(
             "/todos/:id",
-            get(handlers::find_todo::<R>)
-                .delete(handlers::delete_todo::<R>)
-                .patch(handlers::update_todo::<R>),
+            get(handlers::todo::find_todo::<R>)
+                .delete(handlers::todo::delete_todo::<R>)
+                .patch(handlers::todo::update_todo::<R>),
         )
         .layer(Extension(Arc::new(repo)))
 }
@@ -120,7 +118,7 @@ mod tests {
     use tower::ServiceExt;
 
     use crate::create_app;
-    use crate::repositories::{
+    use crate::repositories::todo::{
         test_inmemory_repo::TodoRepositoryMemory, CreateTodo, Todo, TodoRepository,
     };
 
