@@ -8,7 +8,9 @@ create table labels
     name text not null
 );
 
-
+--  DEFERRABLE INITIALLY DEFERRED:
+--  This delays the evaluation of the foreign key constraints
+--  until the end of the transaction.
 -- Up
 create table todos_labels
 (

@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use axum::extract::Extension;
 use axum::http::HeaderValue;
+use axum::routing::delete;
 use axum::{
     http,
     routing::{get, post},
@@ -15,6 +16,11 @@ use hyper::header::{AUTHORIZATION, CONTENT_TYPE};
 use sqlx::PgPool;
 use tower_http::cors::CorsLayer;
 
+use handlers::label::{all_label, create_label, delete_label};
+use handlers::todo::{create_todo, delete_todo, find_todo, update_todo};
+
+use crate::handlers::todo::all_todo;
+use crate::repositories::label::{LabelRepository, LabelRepositoryForDb};
 use crate::repositories::todo::{TodoRepository, TodoRepositoryForDb};
 
 mod handlers;
@@ -60,23 +66,24 @@ async fn create_db_conn(db_url: &str) -> PgPool {
         .expect("Can not connect to database")
 }
 
-fn create_app<R>(repo: R) -> Router
+fn create_app<TR, LR>(todo_repo: TR, label_repo: LR) -> Router
 where
-    R: TodoRepository,
+    TR: TodoRepository,
+    LR: LabelRepository,
 {
     Router::new()
         .route("/", get(root))
-        .route(
-            "/todos",
-            post(handlers::todo::create_todo::<R>).get(handlers::todo::all_todo::<R>),
-        )
+        .route("/todos", post(create_todo::<TR>).get(all_todo::<TR>))
         .route(
             "/todos/:id",
-            get(handlers::todo::find_todo::<R>)
-                .delete(handlers::todo::delete_todo::<R>)
-                .patch(handlers::todo::update_todo::<R>),
+            get(find_todo::<TR>)
+                .delete(delete_todo::<TR>)
+                .patch(update_todo::<TR>),
         )
-        .layer(Extension(Arc::new(repo)))
+        .route("/label", post(create_label::<LR>).get(all_label::<LR>))
+        .route("/label/:id", delete(delete_label::<LR>))
+        .layer(Extension(Arc::new(todo_repo)))
+        .layer(Extension(Arc::new(label_repo)))
 }
 
 async fn run_server(socket_addr: &SocketAddr, app: Router) {
@@ -98,9 +105,11 @@ async fn main() {
     let cors_layer = create_cors_layer(vec![client_url]);
     // init logging
 
-    let repo = TodoRepositoryForDb::new(db_conn);
+    let todo_repo = TodoRepositoryForDb::new(db_conn.clone());
+    let label_repo = LabelRepositoryForDb::new(db_conn.clone());
 
-    let router = create_app::<TodoRepositoryForDb>(repo).layer(cors_layer);
+    let router = create_app::<TodoRepositoryForDb, LabelRepositoryForDb>(todo_repo, label_repo)
+        .layer(cors_layer);
     let addr = SocketAddr::from(([127, 0, 0, 1], 8078));
     run_server(&addr, router).await;
 }
@@ -118,6 +127,7 @@ mod tests {
     use tower::ServiceExt;
 
     use crate::create_app;
+    use crate::repositories::label::test_inmemory_repo::LabelRepositoryForMemory;
     use crate::repositories::todo::{
         test_inmemory_repo::TodoRepositoryMemory, CreateTodo, Todo, TodoRepository,
     };
@@ -188,7 +198,7 @@ mod tests {
     #[tokio::test]
     async fn test_root() {
         let req = RequestBuilder::new("/", Method::GET).with_empty();
-        let app = create_app::<TodoRepositoryMemory>(TodoRepositoryMemory::new());
+        let app = create_app(TodoRepositoryMemory::new(), LabelRepositoryForMemory::new());
         let res = app.oneshot(req).await.unwrap();
         let body = hyper::body::to_bytes(res.into_body()).await.unwrap();
         assert_eq!(body, "Hello, world!");
@@ -198,8 +208,9 @@ mod tests {
     async fn test_create_todo_route() {
         let req = RequestBuilder::new("/todos", Method::POST)
             .with_json_string(r#"{"text": "test todo"}"#.to_string());
-        let repo = TodoRepositoryMemory::new();
-        let app = create_app(repo);
+        let todo_repo = TodoRepositoryMemory::new();
+        let label_repo = LabelRepositoryForMemory::new();
+        let app = create_app(todo_repo, label_repo);
         let res = app.oneshot(req).await.unwrap();
 
         let sut = res_to_todo(res).await;
@@ -211,13 +222,17 @@ mod tests {
     #[tokio::test]
     async fn test_find_todo_by_id_route() {
         // Given a todo in the repository as memory
-        let repo = TodoRepositoryMemory::new();
+        let todo_repo = TodoRepositoryMemory::new();
         let c_todo = CreateTodo::new("test todo".to_string());
-        let todo_registered = repo.create(c_todo).await.expect("failed to create todo");
+        let todo_registered = todo_repo
+            .create(c_todo)
+            .await
+            .expect("failed to create todo");
+        let label_repo = LabelRepositoryForMemory::new();
 
         // When a request is made to find the todo by id
         let req = RequestBuilder::new("/todos/1", Method::GET).with_empty();
-        let app = create_app(repo);
+        let app = create_app(todo_repo, label_repo);
         let res = app.oneshot(req).await.unwrap();
         let result_response = res_to_todo(res).await;
 
@@ -228,15 +243,23 @@ mod tests {
     #[tokio::test]
     async fn test_all_todos_route() {
         // Given a todo in the repository as memory
-        let repo = TodoRepositoryMemory::new();
+        let todo_repo = TodoRepositoryMemory::new();
         let c_todo = CreateTodo::new("test todo".to_string());
-        let todo_registered = repo.create(c_todo).await.expect("Failed to create todo");
+        let todo_registered = todo_repo
+            .create(c_todo)
+            .await
+            .expect("Failed to create todo");
         let c_todo2 = CreateTodo::new("test todo2".to_string());
-        let todo_registered2 = repo.create(c_todo2).await.expect("Failed to create todo");
+        let todo_registered2 = todo_repo
+            .create(c_todo2)
+            .await
+            .expect("Failed to create todo");
+
+        let label_repo = LabelRepositoryForMemory::new();
 
         // When a request is made to find the todo by id
         let req = RequestBuilder::new("/todos", Method::GET).with_empty();
-        let app = create_app(repo);
+        let app = create_app(todo_repo, label_repo);
         let res = app.oneshot(req).await.unwrap();
         let result_response = res_to_todos(res).await;
 
@@ -247,13 +270,18 @@ mod tests {
     #[tokio::test]
     async fn test_delete_todo_route() {
         // Given a todo in the repository as memory
-        let repo = TodoRepositoryMemory::new();
+        let todo_repo = TodoRepositoryMemory::new();
         let c_todo = CreateTodo::new("test todo".to_string());
-        let _todo_registered = repo.create(c_todo).await.expect("Failed to create todo");
+        let _todo_registered = todo_repo
+            .create(c_todo)
+            .await
+            .expect("Failed to create todo");
+
+        let label_repo = LabelRepositoryForMemory::new();
 
         // When a delete request made with path param id=1
         let req = RequestBuilder::new("/todos/1", Method::DELETE).with_empty();
-        let app = create_app(repo);
+        let app = create_app(todo_repo, label_repo);
         let res = app.clone().oneshot(req).await.unwrap();
 
         // then
@@ -269,14 +297,19 @@ mod tests {
     #[tokio::test]
     async fn update_todo_route() {
         // Given a todo in the repository as memory
-        let repo = TodoRepositoryMemory::new();
+        let todo_repo = TodoRepositoryMemory::new();
         let c_todo = CreateTodo::new("test todo".to_string());
-        let _todo_registered = repo.create(c_todo).await.expect("Failed to create todo");
+        let _todo_registered = todo_repo
+            .create(c_todo)
+            .await
+            .expect("Failed to create todo");
+
+        let label_repo = LabelRepositoryForMemory::new();
 
         // When a delete request made with path param id=1
         let req = RequestBuilder::new("/todos/1", Method::PATCH)
             .with_json_string(r#"{"text": "test todo updated"}"#.to_string());
-        let app = create_app(repo);
+        let app = create_app(todo_repo, label_repo);
         let res = app.clone().oneshot(req).await.unwrap();
 
         // then

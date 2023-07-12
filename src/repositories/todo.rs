@@ -1,8 +1,9 @@
 use axum::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
-use thiserror::Error;
 use validator::Validate;
+
+use crate::repositories::RepositoryError;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, FromRow)]
 pub struct Todo {
@@ -31,15 +32,6 @@ pub struct UpdateTodo {
     #[validate(length(max = 288, message = "Over the text length"))]
     text: Option<String>,
     completed: Option<bool>,
-}
-
-#[allow(dead_code)]
-#[derive(Error, Debug)]
-pub enum RepositoryError {
-    #[error("Unexpected error: {0}")]
-    Unexpected(String),
-    #[error("Not found id: {0}")]
-    NotFound(i32),
 }
 
 #[async_trait]
