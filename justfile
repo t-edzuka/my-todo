@@ -26,7 +26,7 @@ audit:
 all:fmt fix test audit
 
 fix:
-    cargo fix && cargo clippy --fix
+    cargo fix --allow-staged && cargo clippy --fix --allow-staged
 
 fix-force:
     cargo fix --allow-dirty && cargo clippy --fix --allow-dirty
