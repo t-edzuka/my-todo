@@ -130,14 +130,14 @@ pub mod test_inmemory_repo {
         async fn create(&self, payload: CreateLabel) -> anyhow::Result<Label> {
             let mut store = self.write_store_ref();
             let id = (store.len() + 1) as i32;
-            let label = Label::new(id, payload.name.clone());
+            let label = Label::new(id, payload.name);
             store.insert(id, label.clone());
             Ok(label)
         }
 
         async fn all(&self) -> anyhow::Result<Vec<Label>> {
             let store = self.read_store_ref();
-            let labels = Vec::from_iter(store.values().map(|label| label.clone()));
+            let labels = Vec::from_iter(store.values().cloned());
             Ok(labels)
         }
 
