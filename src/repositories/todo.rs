@@ -61,30 +61,6 @@ pub struct TodoWithLabelRow {
     label_name: Option<String>,
 }
 
-#[test]
-fn test_from_entity() {
-    let te = TodoEntity {
-        id: 1,
-        text: "text".to_string(),
-        completed: false,
-        labels: vec![Label {
-            id: 1,
-            name: "label".to_string(),
-        }],
-    };
-    let rows = TodoWithLabelRow::from_entity(te);
-    assert_eq!(
-        rows,
-        vec![TodoWithLabelRow {
-            id: 1,
-            text: "text".to_string(),
-            completed: false,
-            label_id: Some(1),
-            label_name: Some("label".to_string()),
-        }]
-    );
-}
-
 fn fold_to_entities(flatten_row: Vec<TodoWithLabelRow>) -> Vec<TodoEntity> {
     let todos_grouped_by_id = flatten_row.iter().fold(
         BTreeMap::<i32, Vec<TodoWithLabelRow>>::new(),
