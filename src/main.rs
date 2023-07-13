@@ -129,20 +129,10 @@ mod tests {
     use crate::create_app;
     use crate::repositories::label::test_inmemory_repo::LabelRepositoryForMemory;
     use crate::repositories::todo::{
-        test_inmemory_repo::TodoRepositoryMemory, CreateTodo, Todo, TodoRepository,
+        test_inmemory_repo::TodoRepositoryMemory, CreateTodo, TodoEntity, TodoRepository,
     };
 
     // Test utilities
-
-    impl Todo {
-        pub(crate) fn new(id: i32, text: &str, completed: bool) -> Todo {
-            Todo {
-                id,
-                text: text.to_string(),
-                completed,
-            }
-        }
-    }
 
     struct RequestBuilder {
         uri: String,
@@ -175,20 +165,19 @@ mod tests {
         }
     }
 
-    async fn res_to_todo(res: Response) -> Todo {
+    async fn res_to_todo(res: Response) -> TodoEntity {
         let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
-        let body = String::from_utf8(bytes.to_vec()).unwrap();
-
-        let todo: Todo = serde_json::from_str(&body)
-            .unwrap_or_else(|_| panic!("failed to parse json: {}", body));
+        let body: String = String::from_utf8(bytes.to_vec()).unwrap();
+        let todo: TodoEntity = serde_json::from_str(&body)
+            .unwrap_or_else(|_| panic!("cannot convert Todo instance. body: {}", body));
         todo
     }
 
-    async fn res_to_todos(res: Response) -> Vec<Todo> {
+    async fn res_to_todos(res: Response) -> Vec<TodoEntity> {
         let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
         let body = String::from_utf8(bytes.to_vec()).unwrap();
 
-        let todos: Vec<Todo> = serde_json::from_str(&body)
+        let todos: Vec<TodoEntity> = serde_json::from_str(&body)
             .unwrap_or_else(|_| panic!("failed to parse json: {}", body));
         todos
     }
@@ -207,7 +196,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_todo_route() {
         let req = RequestBuilder::new("/todos", Method::POST)
-            .with_json_string(r#"{"text": "test todo"}"#.to_string());
+            .with_json_string(r#"{"text": "test todo","labels": []}"#.to_string());
         let todo_repo = TodoRepositoryMemory::new();
         let label_repo = LabelRepositoryForMemory::new();
         let app = create_app(todo_repo, label_repo);
@@ -215,7 +204,7 @@ mod tests {
 
         let sut = res_to_todo(res).await;
 
-        let expected = Todo::new(1, "test todo", false);
+        let expected = TodoEntity::new(1, "test todo".to_string());
         assert_eq!(sut, expected);
     }
 
@@ -223,7 +212,7 @@ mod tests {
     async fn test_find_todo_by_id_route() {
         // Given a todo in the repository as memory
         let todo_repo = TodoRepositoryMemory::new();
-        let c_todo = CreateTodo::new("test todo".to_string());
+        let c_todo = CreateTodo::new("test todo".to_string(), vec![]);
         let todo_registered = todo_repo
             .create(c_todo)
             .await
@@ -237,19 +226,19 @@ mod tests {
         let result_response = res_to_todo(res).await;
 
         // then
-        assert_eq!(result_response, todo_registered);
+        assert_eq!(result_response, todo_registered)
     }
 
     #[tokio::test]
     async fn test_all_todos_route() {
         // Given a todo in the repository as memory
         let todo_repo = TodoRepositoryMemory::new();
-        let c_todo = CreateTodo::new("test todo".to_string());
+        let c_todo = CreateTodo::new("test todo".to_string(), vec![]);
         let todo_registered = todo_repo
             .create(c_todo)
             .await
             .expect("Failed to create todo");
-        let c_todo2 = CreateTodo::new("test todo2".to_string());
+        let c_todo2 = CreateTodo::new("test todo2".to_string(), vec![]);
         let todo_registered2 = todo_repo
             .create(c_todo2)
             .await
@@ -271,7 +260,7 @@ mod tests {
     async fn test_delete_todo_route() {
         // Given a todo in the repository as memory
         let todo_repo = TodoRepositoryMemory::new();
-        let c_todo = CreateTodo::new("test todo".to_string());
+        let c_todo = CreateTodo::new("test todo".to_string(), vec![]);
         let _todo_registered = todo_repo
             .create(c_todo)
             .await
@@ -298,7 +287,7 @@ mod tests {
     async fn update_todo_route() {
         // Given a todo in the repository as memory
         let todo_repo = TodoRepositoryMemory::new();
-        let c_todo = CreateTodo::new("test todo".to_string());
+        let c_todo = CreateTodo::new("test todo".to_string(), vec![]);
         let _todo_registered = todo_repo
             .create(c_todo)
             .await

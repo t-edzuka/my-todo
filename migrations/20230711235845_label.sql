@@ -12,7 +12,7 @@ create table labels
 --  This delays the evaluation of the foreign key constraints
 --  until the end of the transaction.
 -- Up
-create table todos_labels
+create table todo_labels
 (
     todo_id  int not null,
     label_id int not null,
