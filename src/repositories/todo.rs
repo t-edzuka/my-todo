@@ -365,6 +365,13 @@ impl TodoRepository for TodoRepositoryForDb {
 }
 
 #[cfg(test)]
+impl CreateTodo {
+    pub fn new(text: String, labels: Vec<i32>) -> Self {
+        Self { text, labels }
+    }
+}
+
+#[cfg(test)]
 pub mod test_inmemory_repo {
     use std::collections::HashMap;
     use std::sync::RwLock;
