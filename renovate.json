@@ -3,6 +3,7 @@
     "config:base"
   ],
   "timezone": "Asia/Tokyo",
+  "automerge": true,
   "cargo": {
     "enabled": true
   },
