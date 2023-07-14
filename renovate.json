@@ -6,16 +6,5 @@
   "cargo": {
     "enabled": true
   },
-  "platformAutomerge": true,
-  "packageRules": [
-    {
-      "automerge": true
-    },
-    {
-      "matchDepTypes": [
-        "devDependencies"
-      ],
-      "automerge": true
-    }
-  ]
+  "platformAutomerge": true
 }
