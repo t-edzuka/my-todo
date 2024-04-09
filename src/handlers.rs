@@ -1,4 +1,4 @@
-use axum::extract::{FromRequest, Request,};
+use axum::extract::{FromRequest, Request};
 use axum::http::StatusCode;
 use axum::{async_trait, Json};
 use serde::de::DeserializeOwned;

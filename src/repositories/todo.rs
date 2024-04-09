@@ -162,14 +162,22 @@ fn test_fold_entities() {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Validate)]
 pub struct CreateTodo {
-    #[validate(length(min = 1, max = 288, message = "The text length is from 1 to 288 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 288,
+        message = "The text length is from 1 to 288 characters"
+    ))]
     text: String,
     labels: Vec<i32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Validate)]
 pub struct UpdateTodo {
-    #[validate(length(min = 1, max = 288, message = "The text length is from 1 to 288 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 288,
+        message = "The text length is from 1 to 288 characters"
+    ))]
     text: Option<String>,
     completed: Option<bool>,
     labels: Option<Vec<i32>>,
