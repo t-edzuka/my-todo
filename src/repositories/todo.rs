@@ -65,9 +65,7 @@ fn fold_to_entities(flatten_row: Vec<TodoWithLabelRow>) -> Vec<TodoEntity> {
     let todos_grouped_by_id = flatten_row.iter().fold(
         BTreeMap::<i32, Vec<TodoWithLabelRow>>::new(),
         |mut acc, value| {
-            acc.entry(value.id)
-                .or_insert_with(Vec::<TodoWithLabelRow>::new)
-                .push(value.to_owned());
+            acc.entry(value.id).or_default().push(value.to_owned());
             acc
         },
     );
@@ -164,23 +162,21 @@ fn test_fold_entities() {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Validate)]
 pub struct CreateTodo {
-    #[validate(length(min = 1, message = "Can not be empty"))]
-    #[validate(length(max = 288, message = "Over the text length"))]
+    #[validate(length(min = 1, max = 288, message = "The text length is from 1 to 288 characters"))]
     text: String,
     labels: Vec<i32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Validate)]
 pub struct UpdateTodo {
-    #[validate(length(min = 1, message = "Can not be empty"))]
-    #[validate(length(max = 288, message = "Over the text length"))]
+    #[validate(length(min = 1, max = 288, message = "The text length is from 1 to 288 characters"))]
     text: Option<String>,
     completed: Option<bool>,
     labels: Option<Vec<i32>>,
 }
 
 #[async_trait]
-pub trait TodoRepository: Clone + std::marker::Send + std::marker::Sync + 'static {
+pub trait TodoRepository: Clone + Send + Sync + 'static {
     async fn create(&self, todo: CreateTodo) -> anyhow::Result<TodoEntity>;
     async fn find(&self, id: i32) -> anyhow::Result<TodoEntity>;
     async fn all(&self) -> anyhow::Result<Vec<TodoEntity>>;
@@ -277,6 +273,42 @@ impl TodoRepository for TodoRepositoryForDb {
         Ok(fold_to_entities(todos))
     }
 
+    async fn delete(&self, id: i32) -> anyhow::Result<()> {
+        let tx = self.pool.begin().await?;
+
+        // 中間テーブルの関係を外す
+        sqlx::query(
+            r#"
+            delete from todo_labels where todo_id = $1
+            "#,
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => RepositoryError::NotFound(id),
+            _ => RepositoryError::Unexpected(e.to_string()),
+        })?;
+
+        // todo の削除
+        sqlx::query(
+            r#"
+            delete from todos where id = $1
+            "#,
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => RepositoryError::NotFound(id),
+            _ => RepositoryError::Unexpected(e.to_string()),
+        })?;
+
+        tx.commit().await?;
+
+        Ok(())
+    }
+
     async fn update(&self, id: i32, payload: UpdateTodo) -> anyhow::Result<TodoEntity> {
         let tx = self.pool.begin().await?;
 
@@ -325,42 +357,6 @@ impl TodoRepository for TodoRepositoryForDb {
         let todo = self.find(id).await?;
 
         Ok(todo)
-    }
-
-    async fn delete(&self, id: i32) -> anyhow::Result<()> {
-        let tx = self.pool.begin().await?;
-
-        // 中間テーブルの関係を外す
-        sqlx::query(
-            r#"
-            delete from todo_labels where todo_id = $1
-            "#,
-        )
-        .bind(id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| match e {
-            sqlx::Error::RowNotFound => RepositoryError::NotFound(id),
-            _ => RepositoryError::Unexpected(e.to_string()),
-        })?;
-
-        // todo の削除
-        sqlx::query(
-            r#"
-            delete from todos where id = $1
-            "#,
-        )
-        .bind(id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| match e {
-            sqlx::Error::RowNotFound => RepositoryError::NotFound(id),
-            _ => RepositoryError::Unexpected(e.to_string()),
-        })?;
-
-        tx.commit().await?;
-
-        Ok(())
     }
 }
 

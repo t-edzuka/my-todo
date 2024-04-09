@@ -1,7 +1,6 @@
-use axum::extract::FromRequest;
-use axum::http::{Request, StatusCode};
-use axum::{async_trait, BoxError, Json};
-use http_body::Body as HttpBody;
+use axum::extract::{FromRequest, Request,};
+use axum::http::StatusCode;
+use axum::{async_trait, Json};
 use serde::de::DeserializeOwned;
 use validator::Validate;
 
@@ -12,17 +11,17 @@ pub mod todo;
 pub struct ValidatedJson<T>(T);
 
 #[async_trait] // Rustのtraitでasync関数を実装できないためマクロを使用する。
-impl<T, S, B> FromRequest<S, B> for ValidatedJson<T>
+impl<T, S> FromRequest<S> for ValidatedJson<T>
 where
     T: DeserializeOwned + Validate,
-    B: HttpBody + Send + 'static,
-    B::Data: Send,
-    B::Error: Into<BoxError>,
+    // B: HttpBody + Send + 'static,
+    // B::Data: Send,
+    // B::Error: Into<BoxError>,
     S: Send + Sync,
 {
     type Rejection = (StatusCode, String);
 
-    async fn from_request(req: Request<B>, state: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
         let Json(value) = Json::<T>::from_request(req, state)
             .await
             .map_err(|rejection| {

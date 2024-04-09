@@ -30,7 +30,7 @@ async fn root() -> &'static str {
     "Hello, world!"
 }
 
-fn create_cors_layer(allow_origins: impl IntoIterator<Item = String>) -> CorsLayer {
+fn create_cors_layer(allow_origins: impl IntoIterator<Item=String>) -> CorsLayer {
     let allow_origins = allow_origins
         .into_iter()
         .map(|origin: String| {
@@ -67,9 +67,9 @@ async fn create_db_conn(db_url: &str) -> PgPool {
 }
 
 fn create_app<TR, LR>(todo_repo: TR, label_repo: LR) -> Router
-where
-    TR: TodoRepository,
-    LR: LabelRepository,
+    where
+        TR: TodoRepository,
+        LR: LabelRepository,
 {
     Router::new()
         .route("/", get(root))
@@ -88,8 +88,8 @@ where
 
 async fn run_server(socket_addr: &SocketAddr, app: Router) {
     tracing::debug!("listening on {}", socket_addr);
-    axum::Server::bind(socket_addr)
-        .serve(app.into_make_service())
+    let listener = tokio::net::TcpListener::bind(socket_addr).await.expect("failed to bind");
+    axum::serve(listener, app.into_make_service())
         .await
         .unwrap();
 }
@@ -166,7 +166,7 @@ mod tests {
     }
 
     async fn res_to_todo(res: Response) -> TodoEntity {
-        let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+        let bytes = axum::body::to_bytes(res.into_body(), 10_000).await.unwrap();
         let body: String = String::from_utf8(bytes.to_vec()).unwrap();
         let todo: TodoEntity = serde_json::from_str(&body)
             .unwrap_or_else(|_| panic!("cannot convert Todo instance. body: {}", body));
@@ -174,7 +174,7 @@ mod tests {
     }
 
     async fn res_to_todos(res: Response) -> Vec<TodoEntity> {
-        let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+        let bytes = axum::body::to_bytes(res.into_body(), 10_000).await.unwrap();
         let body = String::from_utf8(bytes.to_vec()).unwrap();
 
         let todos: Vec<TodoEntity> = serde_json::from_str(&body)
@@ -189,7 +189,7 @@ mod tests {
         let req = RequestBuilder::new("/", Method::GET).with_empty();
         let app = create_app(TodoRepositoryMemory::new(), LabelRepositoryForMemory::new());
         let res = app.oneshot(req).await.unwrap();
-        let body = hyper::body::to_bytes(res.into_body()).await.unwrap();
+        let body = axum::body::to_bytes(res.into_body(), 10_000).await.unwrap();
         assert_eq!(body, "Hello, world!");
     }
 

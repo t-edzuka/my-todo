@@ -20,8 +20,7 @@ pub trait LabelRepository: Clone + std::marker::Send + std::marker::Sync + 'stat
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Validate)]
 pub struct CreateLabel {
-    #[validate(length(min = 1, message = "Label name is required"))]
-    #[validate(length(max = 255, message = "Label name is too long"))]
+    #[validate(length(min = 1, max = 255, message = "The text length is from 1 to 288 characters"))]
     pub name: String,
 }
 
